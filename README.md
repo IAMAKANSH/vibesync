@@ -1,36 +1,143 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VibeSync
 
-## Getting Started
+A tiny private space for two. Log how you feel, get playful AI suggestions, and find things to do together — whether you're in the same city or worlds apart.
 
-First, run the development server:
+Built with Next.js 16, Redis (Upstash), and any OpenAI-compatible AI provider.
+
+## Features
+
+- **Google sign-in** via NextAuth
+- **Pair codes** — share one code with your person, done
+- **Daily mood 1–10** with notes, tags, and optional location
+- **AI suggestions** — conversation starters, date ideas, music vibes, affirmations
+- **Nearby spots** — restaurants, cafes, parks via OpenStreetMap (no API key)
+- **Long-distance aware** — distance calc, synced virtual dates
+- **Live together** — shared question cards, reactions, surprise compliments
+- **30-day rolling history** — Redis TTL, no cleanup needed
+- **Pluggable AI** — NVIDIA NIM, OpenAI, Groq, Together, or any OpenAI-compatible endpoint. Set once per couple, syncs to both partners.
+- **Framer Motion** throughout
+
+## Quick start
 
 ```bash
+npm install
+cp .env.example .env.local
+# fill in the values (see below)
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### `AUTH_SECRET`
+Generate one:
+```bash
+openssl rand -hex 32
+# or: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
 
-## Learn More
+### Google OAuth (`AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`)
+1. Go to https://console.cloud.google.com/apis/credentials
+2. Create an **OAuth 2.0 Client ID** (Web application)
+3. Add authorized redirect URI: `http://localhost:3000/api/auth/callback/google`
+4. (Later for prod, add your Azure URL: `https://<yourapp>.azurewebsites.net/api/auth/callback/google`)
 
-To learn more about Next.js, take a look at the following resources:
+### Upstash Redis (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`)
+1. Sign up at https://console.upstash.com (free)
+2. Create a Redis database
+3. Copy the **REST URL** and **REST Token**
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### AI provider (optional — couples can set this in-app too)
+Recommended: **NVIDIA NIM** — free tier at https://build.nvidia.com
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```env
+AI_PROVIDER_URL=https://integrate.api.nvidia.com/v1
+AI_PROVIDER_KEY=nvapi-...
+AI_MODEL=meta/llama-3.3-70b-instruct
+```
 
-## Deploy on Vercel
+Alternatives (all OpenAI-compatible):
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Provider | URL | Model |
+|---|---|---|
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| Together | `https://api.together.xyz/v1` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Couples can override these in **Settings** inside the app — changes sync to both partners automatically.
+
+## Data model
+
+All data lives in Redis with **30-day TTL** (rolling). Nothing else to clean up.
+
+| Key | Type | TTL |
+|---|---|---|
+| `user:{id}` | JSON | 30d |
+| `user:email:{email}` | userId | 30d |
+| `code:{code}` | userId | 30d |
+| `couple:{id}` | JSON | 30d |
+| `couple:{id}:ver` | counter | 30d |
+| `mood:{userId}:{YYYY-MM-DD}` | JSON | 30d |
+| `mood:{userId}:recent` | ZSET of dates | 30d |
+| `presence:{userId}` | timestamp | 2min |
+| `suggest:{coupleId}:{digest}` | cached AI JSON | 6h |
+| `live:{coupleId}` | JSON | 30d |
+
+## How realtime works
+
+No WebSocket server needed. Clients poll `/api/state?v=<lastVersion>` every 4s while the tab is visible, 30s when hidden. The server only returns a full body when the couple's version counter has changed — otherwise `204`. Every mood update, live action, or settings change bumps the counter.
+
+## Deploying to Azure
+
+The short path:
+
+1. Push to GitHub (this repo is already configured).
+2. In Azure Portal: **Create App Service** → Linux → Node 20 → your subscription.
+3. Connect the App Service to your GitHub repo (Deployment Center).
+4. In **Configuration → Application settings**, add the same env vars from `.env.local`.
+5. Update your Google OAuth redirect URI to include the Azure URL.
+
+A GitHub Actions workflow file can be generated by Azure when you connect the repo — let it do that.
+
+## Project layout
+
+```
+src/
+  app/
+    page.tsx                    landing
+    pair/                       pairing flow
+    dashboard/                  main couple view
+    settings/                   AI config + unpair
+    api/
+      auth/[...nextauth]/       NextAuth
+      me/                       session + presence
+      state/                    realtime poll endpoint
+      mood/                     POST + GET 30d history
+      pair/join, pair/unpair
+      suggest/                  AI suggestions
+      live/                     live room actions
+      nearby/                   Overpass nearby places
+      settings/ai/              couple-level AI config
+  lib/
+    redis.ts, keys.ts, types.ts
+    user.ts, couple.ts, mood.ts, presence.ts
+    ai.ts                       pluggable provider + prompt
+    geo.ts                      Overpass + haversine
+    useCoupleState.ts           client polling hook
+  components/
+    MoodCard, MoodSlider, PartnerCard
+    SuggestionPanel, NearbyPlaces
+    LiveRoom, HistoryChart
+    TopBar, Logo, SignInButton
+  auth.ts                       NextAuth config
+  proxy.ts                      route protection (Next 16)
+```
+
+## Philosophy
+
+Small. Private. For two. No analytics, no feed, no social mechanics. The goal is to help you two talk more, feel closer, and do fun things — not to become another app you open out of boredom.
+
+---
+
+Made with love. Data auto-clears after 30 days.
