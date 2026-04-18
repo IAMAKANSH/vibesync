@@ -25,6 +25,60 @@ type OverpassEl = {
   tags?: Record<string, string>;
 };
 
+const OVERPASS_ENDPOINTS = [
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.osm.ch/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+];
+
+async function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function runOverpass(query: string): Promise<OverpassEl[]> {
+  let bestResult: OverpassEl[] | null = null;
+  const errors: string[] = [];
+
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: AbortSignal.timeout(22_000),
+        });
+        if (resp.status === 429) {
+          if (attempt === 0) {
+            await sleep(1500);
+            continue;
+          }
+          errors.push(`${endpoint} 429 after retry`);
+          break;
+        }
+        if (!resp.ok) {
+          errors.push(`${endpoint} ${resp.status}`);
+          break;
+        }
+        const data = (await resp.json()) as { elements: OverpassEl[] };
+        const els = data.elements || [];
+        if (els.length > 0) return els;
+        if (!bestResult) bestResult = els;
+        errors.push(`${endpoint} empty`);
+        break;
+      } catch (e) {
+        errors.push(
+          `${endpoint} ${e instanceof Error ? e.message : "failed"}`
+        );
+        break;
+      }
+    }
+  }
+  if (bestResult !== null) return bestResult;
+  throw new Error(`overpass unavailable: ${errors.join(" | ")}`);
+}
+
 export async function fetchNearby(params: {
   lat: number;
   lng: number;
@@ -63,20 +117,11 @@ export async function fetchNearby(params: {
     );
   }
 
-  const query = `[out:json][timeout:15];(${lines.join("")});out center 40;`;
-
-  const resp = await fetch("https://overpass-api.de/api/interpreter", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `data=${encodeURIComponent(query)}`,
-  });
-  if (!resp.ok) {
-    throw new Error(`Overpass error ${resp.status}`);
-  }
-  const data = (await resp.json()) as { elements: OverpassEl[] };
+  const query = `[out:json][timeout:20];(${lines.join("")});out center 40;`;
+  const elements = await runOverpass(query);
 
   const places: NearbyPlace[] = [];
-  for (const el of data.elements || []) {
+  for (const el of elements) {
     const name = el.tags?.name;
     if (!name) continue;
     const lat = el.lat ?? el.center?.lat;

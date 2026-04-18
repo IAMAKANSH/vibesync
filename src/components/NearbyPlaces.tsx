@@ -1,8 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Coffee, UtensilsCrossed, Trees, Film, Wine, IceCream } from "lucide-react";
+import {
+  MapPin,
+  Coffee,
+  UtensilsCrossed,
+  Trees,
+  Film,
+  Wine,
+  IceCream,
+  RefreshCw,
+  LocateFixed,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 type Place = {
@@ -30,48 +40,82 @@ export function NearbyPlaces({
   lat?: number;
   lng?: number;
 }) {
+  const [overrideCoords, setOverrideCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const effLat = overrideCoords?.lat ?? lat;
+  const effLng = overrideCoords?.lng ?? lng;
+
   const [places, setPlaces] = useState<Place[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
+
+  const load = useCallback(
+    async (la: number, ln: number, force = false) => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const r = await fetch(
+          `/api/nearby?lat=${la}&lng=${ln}${force ? `&t=${Date.now()}` : ""}`
+        );
+        const d = await r.json();
+        if (r.ok && Array.isArray(d.places)) {
+          setPlaces(d.places);
+        } else if (d.error) {
+          setErr(
+            d.error.length > 80
+              ? "couldn't reach map servers — try refresh"
+              : d.error
+          );
+        } else {
+          setErr("couldn't load places");
+        }
+      } catch {
+        setErr("network error");
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
-    if (lat == null || lng == null) {
-      setPlaces(null);
+    if (effLat == null || effLng == null) return;
+    load(effLat, effLng);
+  }, [effLat, effLng, load]);
+
+  function useMyLocation() {
+    if (!("geolocation" in navigator)) {
+      setErr("this browser can't share location");
       return;
     }
-    let cancel = false;
-    setLoading(true);
+    setLocating(true);
     setErr(null);
-    fetch(`/api/nearby?lat=${lat}&lng=${lng}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancel) return;
-        if (d.places) setPlaces(d.places);
-        else setErr("couldn't load places");
-      })
-      .catch(() => {
-        if (!cancel) setErr("network error");
-      })
-      .finally(() => !cancel && setLoading(false));
-    return () => {
-      cancel = true;
-    };
-  }, [lat, lng]);
-
-  if (lat == null || lng == null) {
-    return (
-      <div className="glass rounded-3xl p-6">
-        <div className="flex items-center gap-2 mb-3">
-          <MapPin size={16} className="text-cyan-200" />
-          <h3 className="font-semibold">nearby spots</h3>
-        </div>
-        <p className="text-sm text-[color:var(--fg-mute)]">
-          share your location when logging mood to see cafes, restaurants, and
-          parks around you
-        </p>
-      </div>
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setOverrideCoords({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+        setLocating(false);
+      },
+      () => {
+        setLocating(false);
+        setErr("location permission denied");
+      },
+      { timeout: 10000, maximumAge: 60000 }
     );
   }
+
+  function refresh() {
+    if (effLat != null && effLng != null) {
+      load(effLat, effLng, true);
+    }
+  }
+
+  const hasCoords = effLat != null && effLng != null;
 
   return (
     <motion.div
@@ -79,14 +123,61 @@ export function NearbyPlaces({
       animate={{ opacity: 1, y: 0 }}
       className="glass rounded-3xl p-6"
     >
-      <div className="flex items-center gap-2 mb-4">
-        <MapPin size={16} className="text-cyan-200" />
-        <h3 className="font-semibold">nearby spots</h3>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <MapPin size={16} className="text-cyan-200" />
+          <h3 className="font-semibold">nearby spots</h3>
+        </div>
+        <div className="flex items-center gap-1">
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={useMyLocation}
+            disabled={locating}
+            className="glass-strong rounded-full px-3 py-1.5 text-xs inline-flex items-center gap-1.5 hover:bg-white/15 transition"
+            title="use my current location"
+          >
+            <LocateFixed size={12} className={locating ? "animate-pulse" : ""} />
+            {locating ? "locating…" : "my location"}
+          </motion.button>
+          {hasCoords && (
+            <motion.button
+              whileTap={{ rotate: 180 }}
+              onClick={refresh}
+              disabled={loading}
+              aria-label="refresh"
+              className="p-2 rounded-full hover:bg-white/5 disabled:opacity-50"
+            >
+              <RefreshCw
+                size={13}
+                className={loading ? "animate-spin" : ""}
+              />
+            </motion.button>
+          )}
+        </div>
       </div>
-      {loading && (
-        <p className="text-sm text-[color:var(--fg-mute)]">finding places…</p>
+
+      {!hasCoords && (
+        <p className="text-sm text-[color:var(--fg-mute)]">
+          tap <em>my location</em> or add your location when logging your mood
+          to see cafes, restaurants, and parks around you.
+        </p>
       )}
-      {err && <p className="text-sm text-pink-300">{err}</p>}
+
+      {hasCoords && loading && !places && (
+        <p className="text-sm text-[color:var(--fg-mute)]">
+          finding places… this can take a few seconds the first time.
+        </p>
+      )}
+
+      {err && (
+        <p className="text-sm text-pink-300">
+          {err}{" "}
+          <button onClick={refresh} className="underline hover:text-pink-200">
+            try again
+          </button>
+        </p>
+      )}
+
       {places && places.length > 0 && (
         <ul className="space-y-2 max-h-72 overflow-y-auto scrollbar-thin pr-2">
           {places.map((p) => {
@@ -117,9 +208,13 @@ export function NearbyPlaces({
           })}
         </ul>
       )}
-      {places && places.length === 0 && (
+
+      {hasCoords && places && places.length === 0 && !loading && !err && (
         <p className="text-sm text-[color:var(--fg-mute)]">
-          nothing nearby. try exploring a bit further.
+          nothing named within 2.5 km.{" "}
+          <button onClick={refresh} className="underline hover:text-white">
+            try again
+          </button>
         </p>
       )}
     </motion.div>

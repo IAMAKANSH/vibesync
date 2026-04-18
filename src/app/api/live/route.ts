@@ -12,8 +12,12 @@ import { z } from "zod";
 type LiveState = {
   question?: string;
   questionAt?: number;
-  reactionMe?: string;
-  reactionPartner?: string;
+  reactionA?: string;
+  reactionB?: string;
+  answerA?: string;
+  answerAAt?: number;
+  answerB?: string;
+  answerBAt?: number;
   compliment?: string;
   complimentAt?: number;
   complimentFrom?: string;
@@ -22,6 +26,7 @@ type LiveState = {
 const Body = z.union([
   z.object({ action: z.literal("new-question") }),
   z.object({ action: z.literal("react"), reaction: z.string().max(40) }),
+  z.object({ action: z.literal("answer"), text: z.string().min(1).max(500) }),
   z.object({ action: z.literal("compliment") }),
   z.object({ action: z.literal("clear") }),
 ]);
@@ -145,8 +150,16 @@ export async function POST(req: Request) {
       questionAt: Date.now(),
     };
   } else if (parsed.data.action === "react") {
-    if (isMeA) next.reactionMe = parsed.data.reaction;
-    else next.reactionPartner = parsed.data.reaction;
+    if (isMeA) next.reactionA = parsed.data.reaction;
+    else next.reactionB = parsed.data.reaction;
+  } else if (parsed.data.action === "answer") {
+    if (isMeA) {
+      next.answerA = parsed.data.text;
+      next.answerAAt = Date.now();
+    } else {
+      next.answerB = parsed.data.text;
+      next.answerBAt = Date.now();
+    }
   } else if (parsed.data.action === "compliment") {
     next.compliment = await genCompliment(
       ctx.couple.id,

@@ -5,11 +5,18 @@ import { getTodayMood } from "@/lib/mood";
 import { redis } from "@/lib/redis";
 import { K } from "@/lib/keys";
 
-type LiveState = {
+type LiveStateStored = {
   question?: string;
   questionAt?: number;
-  reactionMe?: string;
-  reactionPartner?: string;
+  reactionA?: string;
+  reactionB?: string;
+  answerA?: string;
+  answerAAt?: number;
+  answerB?: string;
+  answerBAt?: number;
+  compliment?: string;
+  complimentAt?: number;
+  complimentFrom?: string;
 };
 
 export async function GET(req: Request) {
@@ -35,13 +42,30 @@ export async function GET(req: Request) {
     ctx.partner ? getTodayMood(ctx.partner.id) : Promise.resolve(null),
     ctx.partner ? getPresence(ctx.partner.id) : Promise.resolve(null),
     ctx.couple
-      ? redis().get<string | LiveState>(K.live(ctx.couple.id))
+      ? redis().get<string | LiveStateStored>(K.live(ctx.couple.id))
       : Promise.resolve(null),
   ]);
-  const live: LiveState | null = liveRaw
+  const liveStored: LiveStateStored | null = liveRaw
     ? typeof liveRaw === "string"
-      ? (JSON.parse(liveRaw) as LiveState)
+      ? (JSON.parse(liveRaw) as LiveStateStored)
       : liveRaw
+    : null;
+
+  const isMeA = ctx.couple ? ctx.couple.aId === ctx.me.id : true;
+  const live = liveStored
+    ? {
+        question: liveStored.question,
+        questionAt: liveStored.questionAt,
+        reactionMe: isMeA ? liveStored.reactionA : liveStored.reactionB,
+        reactionPartner: isMeA ? liveStored.reactionB : liveStored.reactionA,
+        answerMe: isMeA ? liveStored.answerA : liveStored.answerB,
+        answerMeAt: isMeA ? liveStored.answerAAt : liveStored.answerBAt,
+        answerPartner: isMeA ? liveStored.answerB : liveStored.answerA,
+        answerPartnerAt: isMeA ? liveStored.answerBAt : liveStored.answerAAt,
+        compliment: liveStored.compliment,
+        complimentAt: liveStored.complimentAt,
+        complimentFrom: liveStored.complimentFrom,
+      }
     : null;
 
   return Response.json({

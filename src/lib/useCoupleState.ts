@@ -30,6 +30,10 @@ export type CoupleStatePayload = {
     questionAt?: number;
     reactionMe?: string;
     reactionPartner?: string;
+    answerMe?: string;
+    answerMeAt?: number;
+    answerPartner?: string;
+    answerPartnerAt?: number;
     compliment?: string;
     complimentAt?: number;
     complimentFrom?: string;

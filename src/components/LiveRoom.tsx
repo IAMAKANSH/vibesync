@@ -2,13 +2,17 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Radio, MessageSquare, Gift, RefreshCw } from "lucide-react";
+import { Radio, MessageSquare, Gift, RefreshCw, Send } from "lucide-react";
 
 type Live = {
   question?: string;
   questionAt?: number;
   reactionMe?: string;
   reactionPartner?: string;
+  answerMe?: string;
+  answerMeAt?: number;
+  answerPartner?: string;
+  answerPartnerAt?: number;
   compliment?: string;
   complimentAt?: number;
   complimentFrom?: string;
@@ -28,6 +32,7 @@ export function LiveRoom({
   onRefresh: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
 
   async function act(body: object, label: string) {
     setBusy(label);
@@ -42,6 +47,15 @@ export function LiveRoom({
       setBusy(null);
     }
   }
+
+  async function sendAnswer() {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft("");
+    await act({ action: "answer", text }, "answer");
+  }
+
+  const hasAnswers = Boolean(live?.answerMe || live?.answerPartner);
 
   return (
     <motion.div
@@ -92,6 +106,7 @@ export function LiveRoom({
               question for both of you
             </div>
             <p className="text-lg md:text-xl leading-snug">{live.question}</p>
+
             <div className="mt-4 flex flex-wrap gap-2">
               {REACTIONS.map((r) => (
                 <motion.button
@@ -119,6 +134,79 @@ export function LiveRoom({
                     <span className="text-lg">{live.reactionPartner}</span>
                   </span>
                 )}
+              </div>
+            )}
+
+            <div className="mt-4 flex items-start gap-2">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendAnswer();
+                  }
+                }}
+                placeholder={
+                  live.answerMe
+                    ? "update your answer…"
+                    : "write your answer — enter to send, shift+enter for newline"
+                }
+                rows={2}
+                maxLength={500}
+                className="resize-none flex-1 text-sm"
+              />
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={sendAnswer}
+                disabled={!draft.trim() || busy === "answer"}
+                className="brand-button rounded-full p-3 disabled:opacity-40"
+                aria-label="send answer"
+              >
+                <Send size={14} />
+              </motion.button>
+            </div>
+
+            {hasAnswers && (
+              <div className="mt-4 space-y-2">
+                <AnimatePresence>
+                  {live.answerMe && (
+                    <motion.div
+                      key={`me-${live.answerMeAt}`}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="flex justify-end"
+                    >
+                      <div className="glass-strong rounded-2xl rounded-tr-sm px-3 py-2 max-w-[80%]">
+                        <div className="text-[10px] uppercase tracking-wider text-[color:var(--fg-mute)] mb-0.5">
+                          you
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap break-words">
+                          {live.answerMe}
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                  {live.answerPartner && (
+                    <motion.div
+                      key={`p-${live.answerPartnerAt}`}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="flex justify-start"
+                    >
+                      <div className="glass rounded-2xl rounded-tl-sm px-3 py-2 max-w-[80%] bg-gradient-to-br from-pink-500/15 to-purple-500/10">
+                        <div className="text-[10px] uppercase tracking-wider text-[color:var(--fg-mute)] mb-0.5">
+                          {partnerName.split(" ")[0]}
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap break-words">
+                          {live.answerPartner}
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
           </motion.div>

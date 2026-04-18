@@ -9,8 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@upstash/redis": "^1.37.0",
     "framer-motion": "^12.38.0",
+    "ioredis": "^5.10.1",
     "lucide-react": "^1.8.0",
     "nanoid": "^5.1.9",
     "next": "16.2.4",

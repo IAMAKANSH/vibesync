@@ -23,6 +23,7 @@ export async function bumpCoupleVer(coupleId: string): Promise<number> {
   const r = redis();
   const v = await r.incr(K.coupleVer(coupleId));
   await r.expire(K.coupleVer(coupleId), TTL_30_DAYS);
+  await r.expire(K.couple(coupleId), TTL_30_DAYS);
   return v;
 }
 
