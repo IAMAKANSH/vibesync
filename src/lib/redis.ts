@@ -5,12 +5,31 @@ let client: IORedisType | null = null;
 
 function ensureClient(): IORedisType {
   if (client) return client;
-  const url = process.env.REDIS_URL ?? "redis://localhost:6379";
-  client = new IORedis(url, {
-    maxRetriesPerRequest: 3,
-    lazyConnect: false,
-    enableReadyCheck: true,
-  });
+  const host = process.env.REDIS_HOST;
+  if (host) {
+    const port = parseInt(process.env.REDIS_PORT ?? "6380", 10);
+    const password = process.env.REDIS_PASSWORD;
+    const useTls =
+      process.env.REDIS_TLS === "true" ||
+      process.env.REDIS_TLS === "1" ||
+      port === 6380;
+    client = new IORedis({
+      host,
+      port,
+      password,
+      tls: useTls ? {} : undefined,
+      maxRetriesPerRequest: 3,
+      lazyConnect: false,
+      enableReadyCheck: true,
+    });
+  } else {
+    const url = process.env.REDIS_URL ?? "redis://localhost:6379";
+    client = new IORedis(url, {
+      maxRetriesPerRequest: 3,
+      lazyConnect: false,
+      enableReadyCheck: true,
+    });
+  }
   client.on("error", (err) => {
     console.error("redis error:", err?.message ?? err);
   });
